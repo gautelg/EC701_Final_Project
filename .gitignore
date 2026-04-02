@@ -1,1 +1,11 @@
 src/sim/reference_docs
+src/sim/scenarios/__init__.py
+src/sim/adapters/__init__.py
+src/sim/analysis/__init__.py
+src/sim/core/__init__.py
+src/sim/core/__pycache__
+src/sim/interfaces/__init__.py
+src/sim/logging/__init__.py
+src/sim/output/*
+src/sim/scenarios/__init__.py
+src/tests/__init__.py
