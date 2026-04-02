@@ -1,1 +1,38 @@
-config yaml
+simulation:
+  dynamics_dt: 1.0       # s — Basilisk integration step
+  controller_dt: 10.0    # s — MPC update rate (unused in zero-control test)
+  t_end: 5700.0          # s — slightly more than one ISS-altitude orbit (~92.6 min = 5556 s)
+
+# Target spacecraft: circular ISS-like orbit
+orbit:
+  a: 6778136.0    # m  — semi-major axis (400 km altitude: 6378136 + 400000)
+  e: 0.0          # —   circular
+  i: 51.6         # deg — ISS inclination
+  Omega: 0.0      # deg — RAAN
+  omega: 0.0      # deg — argument of perigee
+  f: 0.0          # deg — true anomaly at epoch
+
+# Chaser initial conditions relative to target
+chaser:
+  # Offset in Hill (LVLH) frame: [radial, along-track, cross-track], meters
+  # 100 m behind on V-bar (negative along-track)
+  offset_hill: [0.0, -100.0, 0.0]
+  # Relative velocity in Hill frame, m/s (zero = same as free-drift start)
+  v_offset_hill: [0.0, 0.0, 0.0]
+  # Small MRP attitude offset (chaser is not aligned with target body frame)
+  attitude_mrp: [0.1, 0.05, 0.0]
+  # Small initial angular velocity in chaser body frame, rad/s
+  omega_BN_B: [0.0, 0.005, 0.002]
+
+# Target initial attitude (identity: body frame aligned with inertial at t=0)
+target:
+  attitude_mrp: [0.0, 0.0, 0.0]
+  omega_BN_B: [0.0, 0.0, 0.0]
+
+# Shared spacecraft properties (same for target and chaser in this test)
+spacecraft:
+  mass: 500.0                        # kg
+  inertia_diag: [900.0, 800.0, 600.0]  # kg·m², principal moments (diagonal tensor)
+
+vizard:
+  save_file: "src/sim/output/two_sc_test.bin"

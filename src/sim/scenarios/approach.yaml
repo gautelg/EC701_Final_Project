@@ -1,0 +1,19 @@
+# Approach / rendezvous scenario
+# Initial conditions and run parameters — values TBD
+
+scenario:
+  name: approach
+  description: >
+    Chaser starts at a distance from the target and must close the gap
+    and rendezvous using the MPC controller.
+
+initial_conditions:
+  rel_pos: [0.0, 0.0, 0.0]   # m, [x, y, z] in LVLH — TBD
+  rel_vel: [0.0, 0.0, 0.0]   # m/s — TBD
+  quaternion: [1.0, 0.0, 0.0, 0.0]  # scalar-first — TBD
+  omega: [0.0, 0.0, 0.0]     # rad/s — TBD
+
+run:
+  t_end: 0.0                  # s — TBD
+  dynamics_dt: 0.0            # s — TBD
+  controller_dt: 0.0          # s — TBD
