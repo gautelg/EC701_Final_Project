@@ -21,11 +21,12 @@ class SimState:
     time : float
         Current simulation time (s).
     rel_pos : np.ndarray, shape (3,)
-        Relative position of chaser w.r.t. target, expressed in [frame TBD] (m).
+        Relative position of chaser w.r.t. target, expressed in the Hill frame
+        (x=R-bar radial, y=V-bar along-track, z=H-bar orbit-normal) (m).
     rel_vel : np.ndarray, shape (3,)
-        Relative velocity of chaser w.r.t. target, expressed in [frame TBD] (m/s).
+        Relative velocity of chaser w.r.t. target, expressed in the Hill frame (m/s).
     quaternion : np.ndarray, shape (4,)
-        Chaser attitude quaternion [convention TBD: scalar-first or scalar-last].
+        Chaser attitude quaternion, scalar-last convention [qx, qy, qz, qw].
     omega : np.ndarray, shape (3,)
         Chaser body angular velocity (rad/s).
     """

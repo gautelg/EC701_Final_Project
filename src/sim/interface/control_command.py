@@ -19,9 +19,10 @@ class ControlCommand:
     Attributes
     ----------
     force : np.ndarray, shape (3,)
-        Commanded force expressed in [frame TBD] (N).
+        Commanded force expressed in the Hill frame (N).
+        Stage 2 will rotate this into the body frame before applying.
     torque : np.ndarray, shape (3,)
-        Commanded torque expressed in body frame (N·m).
+        Commanded torque expressed in the body frame (N·m).
     valid : bool
         True if the solver returned a valid solution; False if it failed or
         was clipped. Simulator should handle invalid commands gracefully.

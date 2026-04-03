@@ -13,7 +13,7 @@ apply_control() is a no-op in Stage 1 (zero-control test).
 
 import numpy as np
 
-from Basilisk.simulation import spacecraft
+from Basilisk.simulation import spacecraft, extForceTorque
 from Basilisk.utilities import orbitalMotion, macros
 
 
@@ -62,6 +62,9 @@ class BskSpacecraft:
         # Message recorders (set in setup(), read after run())
         self.scTargetLog = None
         self.scChaserLog = None
+
+        # External force/torque effector for chaser (used by BskInterface)
+        self.chaserExtFT = None
 
     def setup(self, environment):
         """
@@ -135,6 +138,15 @@ class BskSpacecraft:
         )
 
         # ------------------------------------------------------------------ #
+        # External force/torque effector for chaser (defaults to zero)
+        # BskInterface.write_command() sets these each controller step.
+        # ------------------------------------------------------------------ #
+        self.chaserExtFT = extForceTorque.ExtForceTorque()
+        self.chaserExtFT.ModelTag = "chaserExtFT"
+        self.scChaser.addDynamicEffector(self.chaserExtFT)
+        self.sim.scSim.AddModelToTask(self.sim.taskName, self.chaserExtFT)
+
+        # ------------------------------------------------------------------ #
         # Attach Earth gravity to both spacecraft
         # ------------------------------------------------------------------ #
         grav_bodies = spacecraft.GravBodyVector(
@@ -178,5 +190,5 @@ class BskSpacecraft:
         return sc
 
     def apply_control(self, control_command):
-        """No-op in Stage 1 (zero-control test)."""
+        """No-op — force application is handled by BskInterface.write_command()."""
         pass
