@@ -9,3 +9,4 @@ src/sim/logging/__init__.py
 src/sim/output/*
 src/sim/scenarios/__init__.py
 src/tests/__init__.py
+src/control/__pycache__
