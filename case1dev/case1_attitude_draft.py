@@ -1,3 +1,5 @@
+# less realistic behavior, currently troubleshooting. ~JW 4.14.26
+
 import numpy as np
 import matplotlib.pyplot as plt
 
