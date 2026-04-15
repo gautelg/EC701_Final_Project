@@ -99,105 +99,98 @@ def simulate_closed_loop(x_init, waypoints, Ad, Bd, Q, R, P, N, u_max,
 
 
 
+### STANDALONE TESTER CODE
+
+if __name__ == "__main__":
+    n = 0.0011          # example mean motion [rad/s]
+    dt = 1.0            # sample time [s]
+    N = 20              # horizon length
+
+    A, B = hcw_matrices(n)
+    Ad, Bd = discretize_system(A, B, dt)
+
+    Q = np.diag([10, 10, 10, 5, 5, 5])
+    R = 0.1 * np.eye(3)
+    P = 20 * np.diag([10, 10, 10, 5, 5, 5])
+
+    u_max = np.array([0.01, 0.01, 0.01])   # accel bounds
+
+    R_circle = 10.0
+    waypoints = [
+        np.array([ R_circle, 0.0, 0.0]),
+        np.array([ 0.0, R_circle, 0.0]),
+        np.array([-R_circle, 0.0, 0.0]),
+        np.array([ 0.0,-R_circle, 0.0]),
+    ]
+
+    x_init = np.array([30.0, -20.0, 5.0, 0.0, 0.0, 0.0])
+
+    X, U = simulate_closed_loop(x_init, waypoints, Ad, Bd, Q, R, P, N, u_max)
 
 
+    ### PLOTTING
 
+    def plot_translation_results(X, U, waypoints, u_max=None, dt=1.0):
+        t_x = np.arange(X.shape[0]) * dt
+        t_u = np.arange(U.shape[0]) * dt
 
-### MISSION PARAMETERS
+        fig, axs = plt.subplots(2, 2, figsize=(12, 8))
 
-n = 0.0011          # example mean motion [rad/s]
-dt = 1.0            # sample time [s]
-N = 20              # horizon length
+        # 1) XY trajectory
+        ax = axs[0, 0]
+        ax.plot(X[:, 0], X[:, 1], label="trajectory")
+        ax.scatter(X[0, 0], X[0, 1], marker='o', label="start")
+        ax.scatter(0, 0, marker='x', s=80, label="target")
+        wp = np.array(waypoints)
+        ax.scatter(wp[:, 0], wp[:, 1], marker='s', label="waypoints")
+        for i, r in enumerate(wp):
+            ax.text(r[0], r[1], f"WP{i+1}")
+        ax.set_xlabel("x")
+        ax.set_ylabel("y")
+        ax.set_title("Relative trajectory in xy-plane")
+        ax.axis("equal")
+        ax.grid(True)
+        ax.legend()
 
-A, B = hcw_matrices(n)
-Ad, Bd = discretize_system(A, B, dt)
+        # 2) Position components
+        ax = axs[0, 1]
+        ax.plot(t_x, X[:, 0], label='x')
+        ax.plot(t_x, X[:, 1], label='y')
+        ax.plot(t_x, X[:, 2], label='z')
+        ax.set_xlabel("time")
+        ax.set_ylabel("position")
+        ax.set_title("Position components")
+        ax.grid(True)
+        ax.legend()
 
-Q = np.diag([10, 10, 10, 5, 5, 5])
-R = 0.1 * np.eye(3)
-P = 20 * np.diag([10, 10, 10, 5, 5, 5])
+        # 3) Velocity components
+        ax = axs[1, 0]
+        ax.plot(t_x, X[:, 3], label='xdot')
+        ax.plot(t_x, X[:, 4], label='ydot')
+        ax.plot(t_x, X[:, 5], label='zdot')
+        ax.set_xlabel("time")
+        ax.set_ylabel("velocity")
+        ax.set_title("Velocity components")
+        ax.grid(True)
+        ax.legend()
 
-u_max = np.array([0.01, 0.01, 0.01])   # accel bounds
+        # 4) Control inputs
+        ax = axs[1, 1]
+        ax.plot(t_u, U[:, 0], label='ux')
+        ax.plot(t_u, U[:, 1], label='uy')
+        ax.plot(t_u, U[:, 2], label='uz')
+        if u_max is not None:
+            for i in range(3):
+                ax.axhline(u_max[i], linestyle='--', linewidth=1)
+                ax.axhline(-u_max[i], linestyle='--', linewidth=1)
+        ax.set_xlabel("time")
+        ax.set_ylabel("control")
+        ax.set_title("Control inputs")
+        ax.grid(True)
+        ax.legend()
 
-R_circle = 10.0
-waypoints = [
-    np.array([ R_circle, 0.0, 0.0]),
-    np.array([ 0.0, R_circle, 0.0]),
-    np.array([-R_circle, 0.0, 0.0]),
-    np.array([ 0.0,-R_circle, 0.0]),
-]
+        plt.tight_layout()
+        plt.show()
 
-x_init = np.array([30.0, -20.0, 5.0, 0.0, 0.0, 0.0])
-
-X, U = simulate_closed_loop(x_init, waypoints, Ad, Bd, Q, R, P, N, u_max)
-
-
-
-
-
-
-### PLOTTING
-
-def plot_translation_results(X, U, waypoints, u_max=None, dt=1.0):
-    t_x = np.arange(X.shape[0]) * dt
-    t_u = np.arange(U.shape[0]) * dt
-
-    fig, axs = plt.subplots(2, 2, figsize=(12, 8))
-
-    # 1) XY trajectory
-    ax = axs[0, 0]
-    ax.plot(X[:, 0], X[:, 1], label="trajectory")
-    ax.scatter(X[0, 0], X[0, 1], marker='o', label="start")
-    ax.scatter(0, 0, marker='x', s=80, label="target")
-    wp = np.array(waypoints)
-    ax.scatter(wp[:, 0], wp[:, 1], marker='s', label="waypoints")
-    for i, r in enumerate(wp):
-        ax.text(r[0], r[1], f"WP{i+1}")
-    ax.set_xlabel("x")
-    ax.set_ylabel("y")
-    ax.set_title("Relative trajectory in xy-plane")
-    ax.axis("equal")
-    ax.grid(True)
-    ax.legend()
-
-    # 2) Position components
-    ax = axs[0, 1]
-    ax.plot(t_x, X[:, 0], label='x')
-    ax.plot(t_x, X[:, 1], label='y')
-    ax.plot(t_x, X[:, 2], label='z')
-    ax.set_xlabel("time")
-    ax.set_ylabel("position")
-    ax.set_title("Position components")
-    ax.grid(True)
-    ax.legend()
-
-    # 3) Velocity components
-    ax = axs[1, 0]
-    ax.plot(t_x, X[:, 3], label='xdot')
-    ax.plot(t_x, X[:, 4], label='ydot')
-    ax.plot(t_x, X[:, 5], label='zdot')
-    ax.set_xlabel("time")
-    ax.set_ylabel("velocity")
-    ax.set_title("Velocity components")
-    ax.grid(True)
-    ax.legend()
-
-    # 4) Control inputs
-    ax = axs[1, 1]
-    ax.plot(t_u, U[:, 0], label='ux')
-    ax.plot(t_u, U[:, 1], label='uy')
-    ax.plot(t_u, U[:, 2], label='uz')
-    if u_max is not None:
-        for i in range(3):
-            ax.axhline(u_max[i], linestyle='--', linewidth=1)
-            ax.axhline(-u_max[i], linestyle='--', linewidth=1)
-    ax.set_xlabel("time")
-    ax.set_ylabel("control")
-    ax.set_title("Control inputs")
-    ax.grid(True)
-    ax.legend()
-
-    plt.tight_layout()
-    plt.show()
-
-plot_translation_results(X, U, waypoints, u_max=u_max, dt=dt)
+    plot_translation_results(X, U, waypoints, u_max=u_max, dt=dt)
 

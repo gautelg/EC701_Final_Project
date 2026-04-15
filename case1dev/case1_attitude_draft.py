@@ -31,6 +31,65 @@ def quat_conj(q):
 def quat_norm(q):
     return q / np.linalg.norm(q)
 
+def rotate_vector_by_quaternion(q, v):
+    """
+    Rotate vector v (3D) by quaternion q (scalar-first).
+    """
+    q_conj = quat_conj(q)
+    v_quat = np.hstack([0.0, v])
+    return quat_mul(quat_mul(q, v_quat), q_conj)[1:]
+
+def quaternion_from_two_vectors(a, b):
+    """
+    Returns scalar-first unit quaternion rotating vector a onto vector b.
+    Both a and b are 3-vectors.
+    """
+    a = np.asarray(a, dtype=float)
+    b = np.asarray(b, dtype=float)
+
+    a = a / np.linalg.norm(a)
+    b = b / np.linalg.norm(b)
+
+    dot_ab = np.dot(a, b)
+
+    # Same direction
+    if np.isclose(dot_ab, 1.0):
+        return np.array([1.0, 0.0, 0.0, 0.0])
+
+    # Opposite direction: need any axis perpendicular to a
+    if np.isclose(dot_ab, -1.0):
+        # choose a convenient perpendicular axis
+        if not np.isclose(a[0], 0.0):
+            axis = np.array([-a[1], a[0], 0.0])
+        else:
+            axis = np.array([0.0, -a[2], a[1]])
+        axis = axis / np.linalg.norm(axis)
+        return np.array([0.0, axis[0], axis[1], axis[2]])  # 180 deg rotation
+
+    axis = np.cross(a, b)
+    q = np.array([1.0 + dot_ab, axis[0], axis[1], axis[2]])
+    return quat_norm(q)
+
+def compute_desired_pointing_quaternion(chaser_pos, target_pos):
+    """
+    Desired quaternion such that body +x axis points toward target.
+    """
+    chaser_pos = np.asarray(chaser_pos, dtype=float)
+    target_pos = np.asarray(target_pos, dtype=float)
+
+    los = target_pos - chaser_pos
+    los_norm = np.linalg.norm(los)
+
+    if los_norm < 1e-12:
+        # Degenerate case: target coincident with chaser
+        return np.array([1.0, 0.0, 0.0, 0.0])
+
+    los_unit = los / los_norm
+    body_x = np.array([1.0, 0.0, 0.0])
+
+    q_des = quaternion_from_two_vectors(body_x, los_unit)
+    return quat_norm(q_des)
+
 def omega_matrix(omega):
     wx, wy, wz = omega
     return np.array([
@@ -45,27 +104,21 @@ def quat_derivative(q, omega):
 
 def attitude_dynamics(q, omega, tau, J):
     qdot = quat_derivative(q, omega)
-    wdot = np.linalg.inv(J) @ (tau - np.cross(omega, J @ omega))
+    # wdot = np.linalg.inv(J) @ (tau - np.cross(omega, J @ omega))
+    wdot = np.linalg.solve(J, tau - np.cross(omega, J @ omega))     # slightly more numerically stable
     return qdot, wdot
 
 def quat_error(q_des, q):
-    q_inv = quat_conj(q)    # unit quaternion inverse
-    q_e = quat_mul(q_inv, q_des)   # <-- flipped order
+    q_e = quat_mul(q_des, quat_conj(q))
     q_e = quat_norm(q_e)
-
-    if q_e[0] < 0:
-        q_e = -q_e
-    return q_e
-
-    # enforce shortest-rotation convention
-    if q_e[0] < 0:
+    if q_e[0] < 0:  # enforce shortest-rotation convention
         q_e = -q_e
     return q_e
 
 def attitude_pd_control(q, omega, q_des, Kq, Kw, tau_max):
     q_e = quat_error(q_des, q)
     e_vec = q_e[1:]  # vector part
-    tau = -Kq @ e_vec - Kw @ omega
+    tau = Kq @ e_vec - Kw @ omega
     tau = np.clip(tau, -tau_max, tau_max)
     return tau, q_e
 
@@ -156,25 +209,25 @@ def plot_attitude_results(Q, W, Tau, Err, dt):
 
     #######
 
+if __name__ == "__main__":
+    J = np.diag([8.0, 6.0, 5.0])
 
-J = np.diag([8.0, 6.0, 5.0])
+    q0 = np.array([1.0, 0.0, 0.0, 0.0])     # identity attitude
+    w0 = np.array([0.0, 0.0, 0.0])
 
-q0 = np.array([1.0, 0.0, 0.0, 0.0])     # identity attitude
-w0 = np.array([0.0, 0.0, 0.0])
+    # Example desired orientation: 90 deg about z-axis
+    theta = np.pi / 2
+    q_des = np.array([np.cos(theta/2), 0.0, 0.0, np.sin(theta/2)])
 
-# Example desired orientation: 90 deg about z-axis
-theta = np.pi / 2
-q_des = np.array([np.cos(theta/2), 0.0, 0.0, np.sin(theta/2)])
+    Kq = np.diag([1.0, 1.0, 1.0])
+    Kw = np.diag([6.0, 6.0, 6.0])
+    tau_max = np.array([0.05, 0.05, 0.05])
 
-Kq = np.diag([2.0, 2.0, 2.0])
-Kw = np.diag([3.0, 3.0, 3.0])
-tau_max = np.array([0.05, 0.05, 0.05])
+    dt = 0.05
+    T = 40
 
-dt = 0.05
-T = 15.0
+    Q, W, Tau, Err = simulate_attitude(
+        q0, w0, q_des, J, Kq, Kw, tau_max, dt=dt, T=T
+    )
 
-Q, W, Tau, Err = simulate_attitude(
-    q0, w0, q_des, J, Kq, Kw, tau_max, dt=dt, T=T
-)
-
-plot_attitude_results(Q, W, Tau, Err, dt)
+    plot_attitude_results(Q, W, Tau, Err, dt)
