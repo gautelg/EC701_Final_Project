@@ -9,4 +9,10 @@ src/sim/logging/__init__.py
 src/sim/output/*
 src/sim/scenarios/__init__.py
 src/tests/__init__.py
-src/control/__pycache__
+src/control/__pycache____pycache__/
+*.pyc
+.env
+.DS_Store
+case1dev/plots/
+*.png
+*.mp4
