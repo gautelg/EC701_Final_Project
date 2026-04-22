@@ -1,0 +1,342 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb,bm}
+\usepackage{array}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage[hidelinks]{hyperref}
+
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0.65em}
+
+\title{Case 1 Controller Design and Implementation Report}
+\author{EC701 Final Project}
+\date{}
+
+\begin{document}
+\maketitle
+
+\section{Purpose and System Overview}
+
+The Case 1 simulation models a chaser spacecraft that visits a sequence of relative-position waypoints around a target and, at each waypoint, rotates so that its body-frame \(+x\) axis points toward the target. The implementation separates the system into two lower-level controllers:
+\begin{itemize}[leftmargin=1.5em]
+    \item a translational model predictive controller (MPC), implemented in \path{case1_translation_draft.py};
+    \item a quaternion-based attitude proportional-derivative (PD) controller, implemented in \path{case1_attitude_draft.py}.
+\end{itemize}
+
+The integrated mission in \path{main_sim.py} uses \path{MissionManager} as a discrete supervisor. The supervisor alternates between \texttt{TRANSLATE} and \texttt{ROTATE} modes. In the nominal implementation, only one subsystem is actively controlled at a time: translation drives the chaser to the active waypoint, then attitude control points the spacecraft toward the target before the next waypoint is assigned.
+
+\section{Translational Dynamics Model}
+
+The translational controller is based on the Hill-Clohessy-Wiltshire (HCW) relative-motion equations. The state is
+\begin{equation}
+    \bm{x}
+    =
+    \begin{bmatrix}
+    r_x & r_y & r_z & v_x & v_y & v_z
+    \end{bmatrix}^{T},
+\end{equation}
+where \(\bm{r} = [r_x,r_y,r_z]^T\) is the relative position of the chaser with respect to the target, and \(\bm{v} = [v_x,v_y,v_z]^T\) is the relative velocity. The continuous-time model is
+\begin{equation}
+    \dot{\bm{x}} = A\bm{x} + B\bm{u},
+\end{equation}
+where \(\bm{u} = [u_x,u_y,u_z]^T\) is a commanded relative acceleration. The HCW matrices used in \path{hcw_matrices(n)} are
+\begin{equation}
+A =
+\begin{bmatrix}
+0 & 0 & 0 & 1 & 0 & 0\\
+0 & 0 & 0 & 0 & 1 & 0\\
+0 & 0 & 0 & 0 & 0 & 1\\
+3n^2 & 0 & 0 & 0 & 2n & 0\\
+0 & 0 & 0 & -2n & 0 & 0\\
+0 & 0 & -n^2 & 0 & 0 & 0
+\end{bmatrix},
+\qquad
+B =
+\begin{bmatrix}
+0 & 0 & 0\\
+0 & 0 & 0\\
+0 & 0 & 0\\
+1 & 0 & 0\\
+0 & 1 & 0\\
+0 & 0 & 1
+\end{bmatrix}.
+\end{equation}
+
+The parameter \(n\) is the target orbit mean motion. In the integrated simulation, \(n = 0.0011~\mathrm{rad/s}\). The HCW equations assume small relative motion near a circular reference orbit, so the target is treated as the origin of a local orbital frame and the chaser as a nearby spacecraft.
+
+The continuous system is discretized using \texttt{scipy.signal.cont2discrete}, giving
+\begin{equation}
+    \bm{x}_{k+1} = A_d \bm{x}_k + B_d \bm{u}_k.
+\end{equation}
+The integrated simulation uses a sample time of \(\Delta t = 1.0~\mathrm{s}\).
+
+\section{Translational MPC Design}
+
+For a waypoint \(\bm{r}_{wp}\), the translational reference is
+\begin{equation}
+    \bm{x}_{ref}
+    =
+    \begin{bmatrix}
+    \bm{r}_{wp}^{T} & 0 & 0 & 0
+    \end{bmatrix}^{T}.
+\end{equation}
+Thus, the controller is asked to reach the waypoint with near-zero relative velocity.
+
+At every time step, \path{solve_mpc(...)} solves the finite-horizon quadratic program
+\begin{align}
+\min_{\{\bm{x}_k,\bm{u}_k\}_{k=0}^{N}}
+&\quad
+\sum_{k=0}^{N-1}
+\left[
+(\bm{x}_k-\bm{x}_{ref})^{T}Q(\bm{x}_k-\bm{x}_{ref})
++
+\bm{u}_k^{T}R\bm{u}_k
+\right]
++
+(\bm{x}_N-\bm{x}_{ref})^{T}P(\bm{x}_N-\bm{x}_{ref})
+\label{eq:mpc_cost}\\
+\text{subject to}
+&\quad
+\bm{x}_0 = \bm{x}_{current}, \nonumber\\
+&\quad
+\bm{x}_{k+1} = A_d\bm{x}_k + B_d\bm{u}_k,
+\qquad k=0,\ldots,N-1, \nonumber\\
+&\quad
+-\bm{u}_{max} \leq \bm{u}_k \leq \bm{u}_{max},
+\qquad k=0,\ldots,N-1. \nonumber
+\end{align}
+
+The integrated simulation uses
+\begin{align}
+Q &= \mathrm{diag}(10,10,10,5,5,5),\\
+R &= 0.1 I_3,\\
+P &= 10Q,\\
+N &= 40,\\
+\bm{u}_{max} &= \begin{bmatrix}0.01 & 0.01 & 0.01\end{bmatrix}^{T}.
+\end{align}
+
+The matrix \(Q\) penalizes position and velocity tracking error, with position weighted more strongly than velocity. The matrix \(R\) penalizes control effort and discourages aggressive acceleration commands. The terminal matrix \(P\) increases the final-state penalty so that the predicted trajectory ends near the waypoint. The box constraint on \(\bm{u}_k\) approximates actuator acceleration limits.
+
+Only the first optimal command is applied:
+\begin{equation}
+    \bm{u}_{trans} = \bm{u}_0^{\star},
+    \qquad
+    \bm{x}_{trans} \leftarrow A_d\bm{x}_{trans} + B_d\bm{u}_{trans}.
+\end{equation}
+The optimization is then solved again at the next sample. This receding-horizon strategy lets the controller repeatedly replan using the latest state while continuing to respect actuator bounds.
+
+Because the model is linear, the cost in \eqref{eq:mpc_cost} is quadratic, and the constraints are linear, the translational MPC is a convex quadratic program. The implementation uses CVXPY with the OSQP solver.
+
+\section{Attitude Kinematics and Dynamics}
+
+The attitude model uses scalar-first unit quaternions,
+\begin{equation}
+    \bm{q}
+    =
+    \begin{bmatrix}
+    q_0 & q_1 & q_2 & q_3
+    \end{bmatrix}^{T}
+    =
+    \begin{bmatrix}
+    q_0 & \bm{q}_v^{T}
+    \end{bmatrix}^{T},
+    \qquad
+    \|\bm{q}\| = 1.
+\end{equation}
+
+The quaternion kinematics are
+\begin{equation}
+    \dot{\bm{q}}
+    =
+    \frac{1}{2}\Omega(\bm{\omega})\bm{q},
+\end{equation}
+where \(\bm{\omega} = [\omega_x,\omega_y,\omega_z]^T\) is body angular velocity and
+\begin{equation}
+\Omega(\bm{\omega})
+=
+\begin{bmatrix}
+0 & -\omega_x & -\omega_y & -\omega_z\\
+\omega_x & 0 & \omega_z & -\omega_y\\
+\omega_y & -\omega_z & 0 & \omega_x\\
+\omega_z & \omega_y & -\omega_x & 0
+\end{bmatrix}.
+\end{equation}
+
+The rigid-body rotational dynamics follow Euler's equation:
+\begin{equation}
+    J\dot{\bm{\omega}} + \bm{\omega}\times(J\bm{\omega}) = \bm{\tau},
+\end{equation}
+or
+\begin{equation}
+    \dot{\bm{\omega}}
+    =
+    J^{-1}
+    \left[
+    \bm{\tau}
+    -
+    \bm{\omega}\times(J\bm{\omega})
+    \right].
+\end{equation}
+
+In code, this equation is evaluated using \texttt{np.linalg.solve(J, ...)} rather than explicitly forming \(J^{-1}\). The integrated simulation uses
+\begin{equation}
+    J = \mathrm{diag}(8,6,5).
+\end{equation}
+
+The simulation uses explicit Euler integration:
+\begin{align}
+    \bm{q}_{k+1} &=
+    \mathrm{normalize}
+    \left(
+    \bm{q}_k + \Delta t\,\dot{\bm{q}}_k
+    \right),\\
+    \bm{\omega}_{k+1} &=
+    \bm{\omega}_k + \Delta t\,\dot{\bm{\omega}}_k.
+\end{align}
+The normalization step is important because numerical integration can otherwise move the quaternion away from unit norm.
+
+\section{Desired Pointing Quaternion}
+
+During \texttt{ROTATE} mode, the desired attitude is recomputed from the current chaser position and fixed target position. The line-of-sight vector is
+\begin{equation}
+    \bm{\ell}
+    =
+    \bm{r}_{target} - \bm{r}_{chaser},
+    \qquad
+    \hat{\bm{\ell}}
+    =
+    \frac{\bm{\ell}}{\|\bm{\ell}\|}.
+\end{equation}
+
+The desired quaternion \(\bm{q}_{des}\) is the unit quaternion that rotates the body-frame \(+x\) axis
+\begin{equation}
+    \bm{b}_x =
+    \begin{bmatrix}
+    1 & 0 & 0
+    \end{bmatrix}^{T}
+\end{equation}
+onto \(\hat{\bm{\ell}}\). The helper function \path{quaternion_from_two_vectors(a,b)} constructs this rotation and handles aligned and anti-aligned edge cases. In the mission context, this makes the spacecraft boresight point toward the target after each waypoint is reached.
+
+\section{Quaternion Error and Attitude PD Control}
+
+The attitude error quaternion is defined as
+\begin{equation}
+    \bm{q}_e
+    =
+    \bm{q}_{des}\otimes\bm{q}^{*},
+\end{equation}
+where \(\otimes\) denotes quaternion multiplication and \(\bm{q}^{*}\) is the quaternion conjugate. The error quaternion is normalized, then sign-adjusted according to
+\begin{equation}
+    \bm{q}_e \leftarrow
+    \begin{cases}
+    -\bm{q}_e, & q_{e,0}<0,\\
+    \bm{q}_e, & q_{e,0}\geq 0.
+    \end{cases}
+\end{equation}
+This enforces the shortest-rotation representation, since \(\bm{q}\) and \(-\bm{q}\) represent the same physical attitude.
+
+The implemented attitude control law is
+\begin{equation}
+    \bm{\tau}
+    =
+    K_q\bm{q}_{e,v}
+    -
+    K_{\omega}\bm{\omega},
+\end{equation}
+where \(\bm{q}_{e,v}\) is the vector part of \(\bm{q}_e\). The proportional term commands torque to reduce pointing error, while the derivative term damps body angular velocity. The integrated simulation uses
+\begin{align}
+K_q &= \mathrm{diag}(1,1,1),\\
+K_{\omega} &= \mathrm{diag}(6,6,6),\\
+\bm{\tau}_{max} &= \begin{bmatrix}0.05 & 0.05 & 0.05\end{bmatrix}^{T}.
+\end{align}
+
+The torque command is saturated componentwise:
+\begin{equation}
+    -\bm{\tau}_{max}
+    \leq
+    \bm{\tau}
+    \leq
+    \bm{\tau}_{max}.
+\end{equation}
+
+For small attitude errors, the vector part of the error quaternion satisfies
+\begin{equation}
+    \bm{q}_{e,v}
+    \approx
+    \frac{1}{2}\theta\hat{\bm{e}},
+\end{equation}
+where \(\theta\) is the principal rotation angle and \(\hat{\bm{e}}\) is the rotation axis. Therefore, near the desired attitude, the controller behaves like a rotational spring-damper: \(K_q\) sets the restoring torque sensitivity to pointing error and \(K_{\omega}\) sets angular-rate damping.
+
+\section{Sequential Mission Logic}
+
+The mission is controlled by a simple hybrid supervisor. In \texttt{TRANSLATE} mode, MPC drives the chaser to the active waypoint while attitude is held fixed unless optional drift propagation is enabled. In \texttt{ROTATE} mode, translation is held fixed while the attitude controller aligns the body \(+x\) axis with the target line of sight.
+
+Translation is complete when
+\begin{equation}
+    \|\bm{r}-\bm{r}_{wp}\| < \epsilon_r
+    \quad\text{and}\quad
+    \|\bm{v}\| < \epsilon_v.
+\end{equation}
+
+Rotation is complete when
+\begin{equation}
+    \|\bm{q}_{e,v}\| < \epsilon_q
+    \quad\text{and}\quad
+    \|\bm{\omega}\| < \epsilon_{\omega}.
+\end{equation}
+
+The integrated setup uses
+\begin{align}
+\epsilon_r &= 0.5~\mathrm{m},&
+\epsilon_v &= 0.05~\mathrm{m/s},&
+\epsilon_q &= 0.05,&
+\epsilon_{\omega} &= 0.02~\mathrm{rad/s}.
+\end{align}
+
+The \texttt{required\_count = 5} setting requires each completion condition to remain true for five consecutive simulation steps before the mode changes. This prevents rapid switching caused by small numerical or control-induced oscillations near a threshold.
+
+\section{Implementation Flow}
+
+The integrated simulation proceeds as follows:
+\begin{enumerate}[leftmargin=1.5em]
+    \item Build the HCW matrices from \(n\).
+    \item Discretize the translational model using \(\Delta t\).
+    \item Define the MPC weights, horizon length, and acceleration bounds.
+    \item Define the attitude inertia matrix, PD gains, and torque bounds.
+    \item Instantiate \texttt{MissionManager} with waypoint and completion tolerances.
+    \item At each time step, apply either the MPC controller or the attitude PD controller, log the state and control histories, then update the mission mode.
+\end{enumerate}
+
+This creates a modular architecture: the translational MPC, attitude PD controller, and mission-level switching logic are independent enough to test separately but are combined in the integrated mission loop.
+
+\section{Assumptions and Limitations}
+
+\begin{itemize}[leftmargin=1.5em]
+    \item The HCW model assumes small relative motion about a circular reference orbit.
+    \item Translational inputs are treated as direct acceleration commands.
+    \item Attitude control uses a diagonal inertia matrix and direct body torque commands.
+    \item Translation and attitude are sequenced rather than controlled as a fully coupled six-degree-of-freedom system.
+    \item Explicit Euler integration is simple and readable, but less accurate than higher-order integration for long or stiff simulations.
+    \item Acceleration and torque limits are modeled as box constraints or componentwise saturation.
+\end{itemize}
+
+These assumptions are appropriate for a first controller-design study because they keep the mathematical structure clear: translation is a constrained linear MPC problem, attitude is a nonlinear quaternion rigid-body control problem, and the mission manager is a deterministic hybrid supervisor.
+
+\section{Source Mapping}
+
+\begin{center}
+\begin{tabular}{@{}p{0.34\linewidth}p{0.58\linewidth}@{}}
+\toprule
+File & Main role \\
+\midrule
+\path{case1_translation_draft.py} & HCW model, discretization, and MPC solver setup \\
+\path{case1_attitude_draft.py} & Quaternion math, pointing error, dynamics, and PD torque control \\
+\path{main_sim.py} & Integrated mission loop, parameters, logging, plots, and metrics \\
+\path{mission_manager.py} & Mode switching, waypoint indexing, tolerances, and counters \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\end{document}

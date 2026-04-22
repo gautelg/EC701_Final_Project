@@ -1,0 +1,56 @@
+# Case 1 waypoint mission scenario.
+#
+# This file overrides or extends src/sim/sim_config.yaml. Keep spacecraft,
+# orbit, and common Basilisk defaults in sim_config.yaml; put mission-specific
+# controller, keep-out, and CBF settings here.
+
+simulation:
+  t_end: 3600.0
+
+vizard:
+  save_file: "src/sim/output/case1_mission.bin"
+
+case1:
+  t_end: 3600.0
+
+  # Waypoints are relative target-centered Hill coordinates [x, y, z] in meters.
+  waypoints:
+    - [0.0, -50.0, 0.0]
+    - [30.0, 0.0, 0.0]
+    - [0.0, 30.0, 0.0]
+    - [-30.0, 0.0, 0.0]
+    - [0.0, -30.0, 0.0]
+
+  # Translational MPC. u is acceleration in m/s^2 and is converted to force
+  # inside Case1MissionController using spacecraft.mass.
+  horizon: 20
+  u_max: [0.01, 0.01, 0.01]
+  Q: [10.0, 10.0, 10.0, 5.0, 5.0, 5.0]
+  R: [0.1, 0.1, 0.1]
+  P: [200.0, 200.0, 200.0, 100.0, 100.0, 100.0]
+
+  # Keep-out zone and control barrier function settings. R_koz is the radius
+  # of the spherical keep-out zone around the target in meters. Set use_cbf to
+  # false to run the nominal MPC without the CBF filter.
+  use_cbf: true
+  R_koz: 25.0
+  cbf_k0: 1.0
+  cbf_k1: 2.0
+  cbf_rho: 10000.0
+  cbf_use_slack: true
+
+  # Attitude controller gains and torque limits.
+  Kq: [10.0, 10.0, 10.0]
+  Kw: [60.0, 60.0, 60.0]
+  tau_max: [0.5, 0.5, 0.5]
+
+  # Adapter saturation limits. max_force should be at least mass * u_max.
+  max_force: 5.0
+  max_torque: 0.5
+
+  mission:
+    eps_r: 2.0
+    eps_v: 0.05
+    eps_q: 0.05
+    eps_w: 0.01
+    required_count: 3

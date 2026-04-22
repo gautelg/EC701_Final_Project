@@ -29,9 +29,16 @@ class SimState:
         Chaser attitude quaternion, scalar-last convention [qx, qy, qz, qw].
     omega : np.ndarray, shape (3,)
         Chaser body angular velocity (rad/s).
+    rel_pos_inertial : np.ndarray, shape (3,), optional
+        Relative position of chaser w.r.t. target in the inertial frame (m).
+        Used by controllers that need an inertial line of sight.
+    hill_to_inertial_dcm : np.ndarray, shape (3, 3), optional
+        DCM rotating vectors from Hill frame into inertial frame.
     """
     time: float
     rel_pos: np.ndarray
     rel_vel: np.ndarray
     quaternion: np.ndarray
     omega: np.ndarray
+    rel_pos_inertial: np.ndarray | None = None
+    hill_to_inertial_dcm: np.ndarray | None = None
