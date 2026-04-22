@@ -1,9 +1,10 @@
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.patches import Circle
 from matplotlib.animation import FuncAnimation
 
-from case1_translation_draft import solve_mpc, hcw_matrices, discretize_system
-from case1_attitude_draft import (
+from translation_controller import solve_mpc, hcw_matrices, discretize_system
+from attitude_controller import (
     quat_norm,
     quat_error,
     attitude_dynamics,
@@ -12,6 +13,7 @@ from case1_attitude_draft import (
     rotate_vector_by_quaternion
 )
 from mission_manager import MissionManager
+from cbf import cbf_filter_translation
 
 def run_sequential_mission(
     x_trans_0,
@@ -31,8 +33,8 @@ def run_sequential_mission(
     Kw,
     tau_max,
     dt,
-    drift_translation_during_rotate=False,
-    drift_attitude_during_translate=False,
+    drift_translation_during_rotate=True,
+    drift_attitude_during_translate=True,
 ):
     x_trans = x_trans_0.copy()
     q = quat_norm(q_0.copy())
@@ -66,8 +68,31 @@ def run_sequential_mission(
 
         if manager.mode == "TRANSLATE":
             x_ref = np.hstack([wp, np.zeros(3)])
-            u_trans = solve_mpc(x_trans, x_ref, Ad, Bd, Q, R, P, N, u_max)
+            
+            # NOTE: commented block is implementation without CBF
+            # u_trans = solve_mpc(x_trans, x_ref, Ad, Bd, Q, R, P, N, u_max)
+            # x_trans = Ad @ x_trans + Bd @ u_trans
+
+            # 1) nominal controller (performance)
+            u_nom = solve_mpc(x_trans, x_ref, Ad, Bd, Q, R, P, N, u_max)
+
+            # 2) safety filter (CBF)    ;   `u_nom` ->{CBF}-> `u_trans`
+            u_trans = cbf_filter_translation(
+                x_trans,
+                u_nom,
+                n,          # mean motion
+                u_max,
+                R_koz       # keep-out spherical radius
+            )
+
+            # debugging
+            if np.linalg.norm(x_trans[:3]) < R_koz + 0.5:
+                print(f"[DEBUG] CBF ACTIVE at t={t:.1f}s | Δu = {np.linalg.norm(u_nom - u_trans):.4e}")
+
+            # 3) propagate with SAFE control
             x_trans = Ad @ x_trans + Bd @ u_trans
+
+
 
             tau = np.zeros(3)   # hold attitude fixed during translation
 
@@ -134,7 +159,7 @@ if __name__ == "__main__":
     ############################
 
     # --- translation
-    n = 0.0011
+    n = 0.0011  # rad/s ; standard orbital rate
     dt = 1.0
     N = 40   # slightly longer horizon helps
 
@@ -146,6 +171,8 @@ if __name__ == "__main__":
     P = 10 * Q
 
     u_max = np.array([0.01, 0.01, 0.01])
+
+    R_koz = 8.0   # keep-out radius [m]
 
     # --- attitude
     J = np.diag([8.0, 6.0, 5.0])
@@ -229,6 +256,17 @@ if __name__ == "__main__":
     wp = np.array(waypoints)
     ax.scatter(wp[:, 0], wp[:, 1], marker='s', label="waypoints")
     ax.scatter(0, 0, marker='x', label="target")
+
+    koz_circle = Circle(
+        (target_pos[0], target_pos[1]),
+        R_koz,
+        fill=False,
+        linestyle='--',
+        linewidth=1.5,
+        color='darkred',
+        label='keep-out zone'
+    )
+    ax.add_patch(koz_circle)
 
     colors = ["blue" if m == "TRANSLATE" else "red" for m in log["mode"]]
     ax.scatter(X[:, 0], X[:, 1], c=colors, s=8, alpha=0.7)
@@ -417,6 +455,18 @@ wp = np.array(waypoints)
 for k in range(len(log["time"])):
     ax.clear()
 
+    # keep-out zone
+    koz_circle = Circle(
+        (target_pos[0], target_pos[1]),
+        R_koz,
+        fill=False,
+        linestyle='--',
+        linewidth=1.5,
+        color='darkred',
+        label='keep-out zone'
+    )
+    ax.add_patch(koz_circle)
+
     # trajectory so far
     ax.plot(X[:k+1, 0], X[:k+1, 1], linewidth=1, label="trajectory")
 
@@ -468,7 +518,7 @@ plt.ioff()
 plt.show()
 
 
-# NOTE: saveable FuncAnimation animation; use this primarily just to export
+# NOTE: below is saveable FuncAnimation animation; use this primarily just to export
 
 fig, ax = plt.subplots(figsize=(7,7))
 
@@ -478,6 +528,16 @@ wp = np.array(waypoints)
 
 def update(k):
     ax.clear()
+    
+    koz_circle = Circle(
+        (target_pos[0], target_pos[1]),
+        R_koz,
+        fill=False,
+        linestyle='--',
+        linewidth=1.5,
+        color='darkred'
+    )
+    ax.add_patch(koz_circle)
 
     r = X[k, :3]
     q = Q_hist[k]
