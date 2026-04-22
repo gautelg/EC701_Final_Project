@@ -21,7 +21,7 @@ This codebase implements a modular simulation of spacecraft proximity operations
 
 ## Module details
 
-### 1. `translation_controller.py` (formerly `case1_translation_draft.py`)
+### 1. `translation_controller.py`
 Handles relative translational motion using Hill-Clohessy-Wiltshire (HCW) dynamics.
 
 **Responsibilities:**
@@ -36,7 +36,7 @@ Handles relative translational motion using Hill-Clohessy-Wiltshire (HCW) dynami
 
 ---
 
-### 2. `attitude_controller.py` (formerly `case1_attitude_draft.py`)
+### 2. `attitude_controller.py`
 Handles spacecraft orientation using quaternion-based rigid-body dynamics.
 
 **Responsibilities:**
@@ -160,4 +160,4 @@ This implementation serves as:
   - high-level guidance structure
   - safety filtering concept
 
-The architecture is designed so that only the **dynamics layer needs to change**, while control and supervision logic remain intact.
+The architecture is designed so that only the dynamics layer needs to change, while control and supervision logic remain intact.
