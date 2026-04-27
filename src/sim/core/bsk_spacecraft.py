@@ -42,6 +42,26 @@ def _hill_to_inertial_dcm(r_N, v_N):
     return np.column_stack([e_x, e_y, e_z])   # shape (3, 3)
 
 
+def _hill_velocity_to_inertial_delta(r_tgt_N, v_tgt_N, dr_hill, dv_hill):
+    """
+    Convert Hill-frame relative position/velocity into an inertial velocity offset.
+
+    The Hill-frame relative velocity includes the rotating-frame transport term.
+    Inverting the read-side relation used by BskInterface requires adding
+    omega_H x dr before rotating back to inertial coordinates.
+    """
+    r_tgt_N = np.asarray(r_tgt_N, dtype=float)
+    v_tgt_N = np.asarray(v_tgt_N, dtype=float)
+    dr_hill = np.asarray(dr_hill, dtype=float)
+    dv_hill = np.asarray(dv_hill, dtype=float)
+
+    R_HN = _hill_to_inertial_dcm(r_tgt_N, v_tgt_N)
+    h_tgt = np.cross(r_tgt_N, v_tgt_N)
+    n = np.linalg.norm(h_tgt) / np.linalg.norm(r_tgt_N) ** 2
+    omega_H = np.array([0.0, 0.0, n], dtype=float)
+    return R_HN @ (dv_hill + np.cross(omega_H, dr_hill))
+
+
 class BskSpacecraft:
 
     def __init__(self, sim, config):
@@ -65,6 +85,10 @@ class BskSpacecraft:
 
         # External force/torque effector for chaser (used by BskInterface)
         self.chaserExtFT = None
+        self.targetEnvExtFT = None
+        self.chaserEnvExtFT = None
+        self.target_mass = None
+        self.chaser_mass = None
 
     def setup(self, environment):
         """
@@ -82,6 +106,8 @@ class BskSpacecraft:
         chs_cfg = self.config["chaser"]
 
         mass  = sc_cfg["mass"]
+        self.target_mass = float(mass)
+        self.chaser_mass = float(mass)
         I_d   = sc_cfg["inertia_diag"]
         I_mat = [[I_d[0], 0.0,    0.0   ],
                  [0.0,    I_d[1], 0.0   ],
@@ -113,7 +139,7 @@ class BskSpacecraft:
         dv_hill = np.array(chs_cfg["v_offset_hill"])   # m/s
 
         r_chs = r_tgt + R_HN @ dr_hill
-        v_chs = v_tgt + R_HN @ dv_hill
+        v_chs = v_tgt + _hill_velocity_to_inertial_delta(r_tgt, v_tgt, dr_hill, dv_hill)
 
         # ------------------------------------------------------------------ #
         # Build both spacecraft modules
@@ -145,6 +171,16 @@ class BskSpacecraft:
         self.chaserExtFT.ModelTag = "chaserExtFT"
         self.scChaser.addDynamicEffector(self.chaserExtFT)
         self.sim.scSim.AddModelToTask(self.sim.taskName, self.chaserExtFT)
+
+        self.targetEnvExtFT = extForceTorque.ExtForceTorque()
+        self.targetEnvExtFT.ModelTag = "targetEnvExtFT"
+        self.scTarget.addDynamicEffector(self.targetEnvExtFT)
+        self.sim.scSim.AddModelToTask(self.sim.taskName, self.targetEnvExtFT)
+
+        self.chaserEnvExtFT = extForceTorque.ExtForceTorque()
+        self.chaserEnvExtFT.ModelTag = "chaserEnvExtFT"
+        self.scChaser.addDynamicEffector(self.chaserEnvExtFT)
+        self.sim.scSim.AddModelToTask(self.sim.taskName, self.chaserEnvExtFT)
 
         # ------------------------------------------------------------------ #
         # Attach Earth gravity to both spacecraft

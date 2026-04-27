@@ -51,6 +51,6 @@ case1:
   mission:
     eps_r: 2.0
     eps_v: 0.05
-    eps_q: 0.05
+    eps_boresight_deg: 5.0
     eps_w: 0.01
     required_count: 3

@@ -3,6 +3,10 @@ simulation:
   controller_dt: 10.0    # s — MPC update rate (unused in zero-control test)
   t_end: 5700.0          # s — slightly more than one ISS-altitude orbit (~92.6 min = 5556 s)
 
+environment:
+  gravity:
+    enable_j2: false     # set true in experiments/scenarios that include J2 perturbations
+
 # Target spacecraft: circular ISS-like orbit
 orbit:
   a: 6778136.0    # m  — semi-major axis (400 km altitude: 6378136 + 400000)
@@ -20,9 +24,9 @@ chaser:
   # Relative velocity in Hill frame, m/s (zero = same as free-drift start)
   v_offset_hill: [0.0, 0.0, 0.0]
   # Small MRP attitude offset (chaser is not aligned with target body frame)
-  attitude_mrp: [0.1, 0.05, 0.0]
+  attitude_mrp: [0.02, 0.01, 0.0]
   # Small initial angular velocity in chaser body frame, rad/s
-  omega_BN_B: [0.0, 0.005, 0.002]
+  omega_BN_B: [0.0, 0.001, 0.0005]
 
 # Target initial attitude (identity: body frame aligned with inertial at t=0)
 target:
@@ -31,8 +35,9 @@ target:
 
 # Shared spacecraft properties (same for target and chaser in this test)
 spacecraft:
-  mass: 500.0                        # kg
-  inertia_diag: [900.0, 800.0, 600.0]  # kg·m², principal moments (diagonal tensor)
+  mass: 300.0                        # kg
+  isp: 225.0                         # s, used for translation propellant estimates
+  inertia_diag: [40.0, 55.0, 65.0]  # kg·m², principal moments (diagonal tensor)
 
 vizard:
   save_file: "src/sim/output/two_sc_test.bin"

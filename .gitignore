@@ -16,3 +16,4 @@ src/control/__pycache____pycache__/
 case1dev/plots/
 *.png
 *.mp4
+documentation/*

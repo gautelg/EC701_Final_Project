@@ -18,8 +18,12 @@ import numpy as np
 
 from Basilisk.utilities import macros, RigidBodyKinematics as rbk
 
-from interface.sim_state import SimState
-from interface.control_command import ControlCommand
+try:
+    from sim.interface.sim_state import SimState
+    from sim.interface.control_command import ControlCommand
+except ModuleNotFoundError:  # pragma: no cover - backward compatibility for legacy launch paths
+    from interface.sim_state import SimState
+    from interface.control_command import ControlCommand
 
 
 def _hill_to_inertial_dcm(r_N, v_N):

@@ -15,7 +15,9 @@ from control.base_controller import BaseController
 from control.Case1.Case1_attitude_controller import (
     attitude_pd_control,
     compute_desired_pointing_quaternion,
+    quat_conj,
     quat_error,
+    rotate_vector_by_quaternion,
 )
 from control.Case1.Case1_cbf import cbf_filter_translation
 from control.Case1.Case1_translation_controller import (
@@ -57,6 +59,9 @@ class Case1MissionStatus:
     current_waypoint: np.ndarray | None
     translate_counter: int
     rotate_counter: int
+    boresight_error_deg: float = np.nan
+    quaternion_error_norm: float = np.nan
+    rate_error_norm: float = np.nan
 
 
 class Case1MissionManager:
@@ -67,14 +72,14 @@ class Case1MissionManager:
         waypoints,
         eps_r=0.1,
         eps_v=0.01,
-        eps_q=0.05,
+        eps_boresight_deg=5.0,
         eps_w=0.01,
         required_count=5,
     ):
         self.waypoints = [_as_array(wp, (3,)) for wp in waypoints]
         self.eps_r = float(eps_r)
         self.eps_v = float(eps_v)
-        self.eps_q = float(eps_q)
+        self.eps_boresight_deg = float(eps_boresight_deg)
         self.eps_w = float(eps_w)
         self.required_count = int(required_count)
 
@@ -97,12 +102,11 @@ class Case1MissionManager:
         vel_err = np.linalg.norm(x_trans[3:])
         return (pos_err < self.eps_r) and (vel_err < self.eps_v)
 
-    def rotation_complete(self, q_err, omega):
-        att_err = np.linalg.norm(q_err[1:])
+    def rotation_complete(self, boresight_error_deg, omega):
         rate_err = np.linalg.norm(omega)
-        return (att_err < self.eps_q) and (rate_err < self.eps_w)
+        return (boresight_error_deg < self.eps_boresight_deg) and (rate_err < self.eps_w)
 
-    def update_mode(self, x_trans, q_err, omega):
+    def update_mode(self, x_trans, boresight_error_deg, omega):
         if self.done:
             return
 
@@ -117,7 +121,7 @@ class Case1MissionManager:
                 self.translate_counter = 0
 
         elif self.mode == "ROTATE":
-            if self.rotation_complete(q_err, omega):
+            if self.rotation_complete(boresight_error_deg, omega):
                 self.rotate_counter += 1
             else:
                 self.rotate_counter = 0
@@ -187,13 +191,15 @@ class Case1MissionController(BaseController):
             waypoints=waypoints,
             eps_r=mission_cfg.get("eps_r", 0.1),
             eps_v=mission_cfg.get("eps_v", 0.01),
-            eps_q=mission_cfg.get("eps_q", 0.05),
+            eps_boresight_deg=mission_cfg.get("eps_boresight_deg", 5.0),
             eps_w=mission_cfg.get("eps_w", 0.01),
             required_count=mission_cfg.get("required_count", 5),
         )
 
         self.last_accel = np.zeros(3)
         self.last_q_err = np.array([1.0, 0.0, 0.0, 0.0])
+        self.last_boresight_error_deg = np.nan
+        self.last_rate_error_norm = np.nan
         self.last_valid = True
 
     @property
@@ -201,7 +207,18 @@ class Case1MissionController(BaseController):
         return self.manager.done
 
     def status(self):
-        return self.manager.status()
+        manager_status = self.manager.status()
+        return Case1MissionStatus(
+            mode=manager_status.mode,
+            waypoint_index=manager_status.waypoint_index,
+            done=manager_status.done,
+            current_waypoint=manager_status.current_waypoint,
+            translate_counter=manager_status.translate_counter,
+            rotate_counter=manager_status.rotate_counter,
+            boresight_error_deg=self.last_boresight_error_deg,
+            quaternion_error_norm=float(np.linalg.norm(self.last_q_err[1:])),
+            rate_error_norm=self.last_rate_error_norm,
+        )
 
     def step(self, state: SimState) -> ControlCommand:
         if self.manager.done:
@@ -214,17 +231,19 @@ class Case1MissionController(BaseController):
             return ControlCommand(force=np.zeros(3), torque=np.zeros(3), valid=True)
 
         accel, trans_valid = self._translation_accel(x_trans, waypoint)
-        torque, q_err = self._attitude_torque(state)
+        torque, q_err, boresight_error_deg = self._attitude_torque(state)
 
         if self.manager.mode == "TRANSLATE":
             torque_to_apply = np.zeros(3)
         else:
             torque_to_apply = torque
 
-        self.manager.update_mode(x_trans, q_err, state.omega)
+        self.manager.update_mode(x_trans, boresight_error_deg, state.omega)
 
         self.last_accel = accel
         self.last_q_err = q_err
+        self.last_boresight_error_deg = boresight_error_deg
+        self.last_rate_error_norm = float(np.linalg.norm(state.omega))
         self.last_valid = trans_valid
 
         return ControlCommand(
@@ -288,7 +307,8 @@ class Case1MissionController(BaseController):
             self.Kw,
             self.tau_max,
         )
-        return torque, q_err
+        boresight_error_deg = self._boresight_error_deg(q_current, los_inertial)
+        return torque, q_err, boresight_error_deg
 
     def _line_of_sight_to_target_inertial(self, state: SimState):
         if state.rel_pos_inertial is not None:
@@ -307,3 +327,13 @@ class Case1MissionController(BaseController):
         los_inertial = self._line_of_sight_to_target_inertial(state)
         q_des = compute_desired_pointing_quaternion(np.zeros(3), los_inertial)
         return quat_error(q_current, q_des)
+
+    def _boresight_error_deg(self, q_current, los_inertial):
+        los_norm = np.linalg.norm(los_inertial)
+        if los_norm < 1e-12:
+            return 0.0
+
+        los_body = rotate_vector_by_quaternion(quat_conj(q_current), los_inertial / los_norm)
+        body_x = np.array([1.0, 0.0, 0.0])
+        cos_angle = np.clip(np.dot(los_body, body_x), -1.0, 1.0)
+        return float(np.degrees(np.arccos(cos_angle)))

@@ -38,7 +38,7 @@ def _controller_config():
         "mission": {
             "eps_r": 2.0,
             "eps_v": 0.05,
-            "eps_q": 0.05,
+            "eps_boresight_deg": 5.0,
             "eps_w": 0.01,
             "required_count": 1,
         },
@@ -66,3 +66,28 @@ def test_case1_controller_returns_finite_command():
     assert np.linalg.norm(cmd.force, ord=np.inf) <= 5.0 + 1e-8
     assert np.allclose(cmd.torque, np.zeros(3))
     assert controller.status().mode == "TRANSLATE"
+
+
+def test_case1_rotation_completion_uses_boresight_and_rate():
+    config = _controller_config()
+    config["mission"]["required_count"] = 2
+    controller = Case1MissionController(config)
+    controller.manager.mode = "ROTATE"
+    state = SimState(
+        time=0.0,
+        rel_pos=np.array([-1.0, 0.0, 0.0]),
+        rel_vel=np.zeros(3),
+        quaternion=np.array([0.0, 0.0, 0.0, 1.0]),
+        omega=np.array([0.0, 0.0, 0.005]),
+        rel_pos_inertial=np.array([-1.0, 0.0, 0.0]),
+        hill_to_inertial_dcm=np.eye(3),
+    )
+
+    cmd = controller.step(state)
+    status = controller.status()
+
+    assert np.all(np.isfinite(cmd.torque))
+    assert status.mode == "ROTATE"
+    assert status.rotate_counter == 1
+    assert status.boresight_error_deg <= 5.0 + 1e-8
+    assert status.rate_error_norm <= 0.01 + 1e-8
