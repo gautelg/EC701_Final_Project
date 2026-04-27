@@ -47,4 +47,5 @@ def cbf_filter_translation(x_trans, u_nom, n, u_max, R_koz, k0=1.0, k1=2.0, rho=
     if u.value is None:
         return np.clip(u_nom, -u_max, u_max)
 
-    return np.array(u.value).reshape(3,)
+    u_safe = np.array(u.value).reshape(3,)
+    return np.clip(u_safe, -u_max, u_max)
