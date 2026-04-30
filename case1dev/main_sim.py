@@ -161,14 +161,14 @@ if __name__ == "__main__":
     # --- translation
     n = 0.0011  # rad/s ; standard orbital rate
     dt = 1.0
-    N = 40   # slightly longer horizon helps
+    N = 40   # slightly longer horizon helps; stable <= ~60
 
     A, B = hcw_matrices(n)
     Ad, Bd = discretize_system(A, B, dt)
 
-    Q = np.diag([10, 10, 10, 5, 5, 5])
+    Q = np.diag([10, 10, 10, 20, 20, 20])  # Q = np.diag([10, 10, 10, 5, 5, 5])
     R = 0.1 * np.eye(3)
-    P = 10 * Q
+    P = 5 * Q  # P = 10 * Q
 
     u_max = np.array([0.01, 0.01, 0.01])
 

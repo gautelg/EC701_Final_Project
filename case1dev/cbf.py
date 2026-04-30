@@ -10,7 +10,7 @@ def hcw_drift_accel(r, v, n):
         -n**2 * z
     ], dtype=float)
 
-def cbf_filter_translation(x_trans, u_nom, n, u_max, R_koz, k0=1.0, k1=2.0, rho=1e4, use_slack=True):
+def cbf_filter_translation(x_trans, u_nom, n, u_max, R_koz, k0=1.0, k1=2.0, rho=1e4, use_slack=True):   # initial: k0=1.0, k1=2.0
     r = x_trans[:3]
     v = x_trans[3:]
 
