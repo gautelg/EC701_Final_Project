@@ -1,54 +1,66 @@
-# System Architecture Overview
+# Autonomous Rendezvous, Proximity Operations, and Docking (ARPOD) -- Sequential Hierarchical Controller
 
-This codebase implements a modular simulation of spacecraft proximity operations using a sequential guidance and control strategy. The system separates translational control, attitude control, supervisory logic, and safety filtering into distinct components for clarity and extensibility.
+This codebase implements a modular simulation of spacecraft proximity operations subject to Hill-Clohessy-Wiltshire (HCW) orbital dynamics using a sequential guidance and control strategy, specifically to command a chase craft to safely approach, maneuver around, and observe a target craft. The hierarchical system separates translational control (MPC), quaternion-based attitude control, hybrid supervisory mode switching, and safety filtering (second-order CBF) into distinct components for clarity and extensibility.
+
+
+## Simulation Demo
+
+https://github.com/user-attachments/assets/7ed397fd-a6b4-4f7f-9457-98def522e20e
+
+> *Simulation of an autonomous inspection trajectory around a target spacecraft in the Local Vertical Local Horizontal (LVLH) frame. While this scenario executes a coplanar waypoint sequence, the underlying controller tracks full 6-DOF state vectors, i.e., $[x, y, z, \dot{x}, \dot{y}, \dot{z}]^T$ and supports arbitrary 3D relative trajectories.*
+
 
 ---
 
-## Overall control/data flow
+## Control Flow
+
+At each simulation timestep:
 
 1. `main_sim.py` queries `mission_manager.py` for current mode and active waypoint.
 2. If mode is `TRANSLATE`:
-   - `case1_translation_draft.py` computes nominal MPC control `u_nom`
+   - `translation_controller.py` computes nominal MPC control `u_nom`
    - `cbf.py` filters `u_nom` into safe control `u_trans`
-   - `main_sim.py` propagates translational dynamics
+   - `main_sim.py` propagates translational dynamics (and togglable attitude drift)
 3. If mode is `ROTATE`:
-   - `case1_attitude_draft.py` computes desired pointing quaternion from current relative position
-   - `case1_attitude_draft.py` computes torque command and propagates attitude dynamics
+   - `attitude_controller.py` computes desired pointing quaternion `q_des` from current relative position and torque command `τ`
+   - `main_sim.py` propagates rigid-body attitude dynamics (and togglable orbital drift)
 4. `main_sim.py` logs all states, controls, errors, and mode history
-5. `mission_manager.py` updates waypoint index / mode transitions based on thresholds
+5. `mission_manager.py` updates waypoint index and mode transitions based on state tolerances
 
 ---
 
 ## Module details
 
 ### 1. `translation_controller.py`
-Handles relative translational motion using Hill-Clohessy-Wiltshire (HCW) dynamics.
+Defines relative translational dynamics and computes nominal optimal control using Hill-Clohessy-Wiltshire (HCW) equations.
 
 **Responsibilities:**
 - Define continuous-time HCW dynamics in the LVLH frame
-- Discretize dynamics for control
+- Discretize system dynamics for prediction and simulation
 - Solve a finite-horizon MPC problem (quadratic program via CVXPY + OSQP)
 - Provide nominal translational control input `u_nom`
+- (includes a `__main__` block for standalone unit testing)
 
 **Key Interface:**
 - Input: current state `x_trans`, reference state `x_ref`
-- Output: nominal control `u_nom`
+- Output: nominal control `u_nom` (and discrete state-space matrices `Ad`, `Bd`)
 
 ---
 
 ### 2. `attitude_controller.py`
-Handles spacecraft orientation using quaternion-based rigid-body dynamics.
+Defines spacecraft rigid-body attitude dynamics and computes quaternion-based pointing control.
 
 **Responsibilities:**
-- Implement quaternion algebra and normalization
-- Compute desired pointing quaternion based on line-of-sight (LOS)
-- Compute quaternion error
-- Apply PD-based torque control
-- Propagate attitude dynamics
+- Implement scalar-first Hamilton quaternion algebra and normalization
+- Compute desired pointing quaternion `q_des` based on line-of-sight (LOS) to target
+- Compute shortest-path quaternion error `q_e`
+- Compute bounded PD control torque `τ` (subject to actuator limits `±τ_max`)
+- Define rigid-body Euler/quaternion state derivatives `(qdot, wdot)`
+- (includes a `__main__` block for standalone unit testing)
 
 **Key Interface:**
 - Input: current attitude `(q, ω)`, desired attitude `q_des`
-- Output: control torque `τ`, updated `(q, ω)`
+- Output: control torque `τ`, quaternion error `q_e`, and state derivatives `(qdot, wdot)`
 
 ---
 
@@ -87,43 +99,18 @@ Implements a Control Barrier Function (CBF)-based safety filter for translation.
 ---
 
 ### 5. `main_sim.py`
-Top-level simulation orchestrator.
+Top-level closed-loop simulation orchestrator.
 
 **Responsibilities:**
 - Initialize system parameters, gains, and initial conditions
-- Run closed-loop simulation over time
+- Run closed-loop sequential mission over time
 - Coordinate all modules:
   - Query `mission_manager` for current mode
-  - Call appropriate controller (translation or attitude)
-  - Apply safety filter (CBF) in translation mode
-- Propagate system states
+  - Call appropriate controller (`translation_controller` or `attitude_controller`)
+  - Apply safety filter (`cbf`) in translation mode
+- Integrate system states (including optional natural drift during inactive sequential phases)
 - Log all relevant data (states, controls, errors, mode)
 - Generate plots and animations
-
----
-
-## Control Flow
-
-At each simulation timestep:
-
-1. **Supervisor**
-   - `mission_manager` determines current mode and active waypoint
-
-2. **Translation Mode**
-   - Compute nominal control via MPC (`u_nom`)
-   - Apply CBF safety filter → `u_trans`
-   - Propagate translational dynamics
-
-3. **Rotation Mode**
-   - Compute desired pointing quaternion (`q_des`)
-   - Compute torque via PD controller (`τ`)
-   - Propagate attitude dynamics
-
-4. **Logging**
-   - Store time, mode, states, inputs, and errors
-
-5. **Mode Update**
-   - `mission_manager` updates mode based on thresholds
 
 ---
 
